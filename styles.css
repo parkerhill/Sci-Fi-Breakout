@@ -1,0 +1,115 @@
+:root {
+    --neon-cyan: #00ffff;
+    --neon-purple: #bf00ff;
+    --neon-blue: #00bfff;
+    --background: #000022;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: var(--background);
+    color: var(--neon-cyan);
+    font-family: 'Orbitron', sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+.game-container {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#game-canvas {
+    border: 2px solid var(--neon-cyan);
+    box-shadow: 0 0 15px var(--neon-cyan);
+    background: rgba(0, 0, 0, 0.9);
+}
+
+.menu {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.8);
+    padding: 2rem;
+    border: 2px solid var(--neon-purple);
+    border-radius: 10px;
+    text-align: center;
+    backdrop-filter: blur(5px);
+}
+
+.menu h1, .menu h2 {
+    color: var(--neon-cyan);
+    text-shadow: 0 0 10px var(--neon-cyan);
+    margin-bottom: 1rem;
+}
+
+.menu button {
+    background: var(--neon-cyan);
+    color: #000;
+    border: none;
+    padding: 0.5rem 1rem;
+    margin: 0.5rem;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    font-family: 'Orbitron', sans-serif;
+}
+
+.menu button:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 15px var(--neon-cyan);
+}
+
+.menu input {
+    background: rgba(255, 255, 255, 0.1);
+    border: 2px solid var(--neon-cyan);
+    color: var(--neon-cyan);
+    padding: 0.5rem;
+    margin: 0.5rem;
+    border-radius: 5px;
+    text-align: center;
+    font-family: 'Orbitron', sans-serif;
+}
+
+.hidden {
+    display: none;
+}
+
+#leaderboard {
+    margin: 1rem 0;
+}
+
+#leaderboard ul {
+    list-style: none;
+    padding: 0;
+}
+
+#leaderboard li {
+    color: var(--neon-cyan);
+    margin: 0.5rem 0;
+    text-shadow: 0 0 5px var(--neon-cyan);
+}
+
+.debug-console {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    width: 300px;
+    height: 150px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid var(--neon-cyan);
+    color: #fff;
+    font-family: monospace;
+    padding: 5px;
+    font-size: 12px;
+    overflow-y: auto;
+    z-index: 1000;
+}

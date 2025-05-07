@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sci-Fi Breakout</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Game styles and fonts only -->
+</head>
+<body>
+    <div class="game-container">
+        <div id="start-menu" class="menu">
+            <h1>Sci-Fi Breakout</h1>
+            <button id="start-button">Start Game</button>
+        </div>
+        
+        <!-- Game elements only -->
+        
+        <div id="game-over-menu" class="menu hidden">
+            <h2>Game Over</h2>
+            <div id="final-score"></div>
+            <div id="high-score-input" class="hidden">
+                <input type="text" id="initials" maxlength="3" placeholder="Enter initials">
+                <button id="submit-high-score">Submit</button>
+            </div>
+            <div id="leaderboard"></div>
+            <button id="play-again">Play Again</button>
+        </div>
+
+        <canvas id="game-canvas" width="800" height="600"></canvas>
+    </div>
+    
+    <script src="game.js"></script>
+    <script src="ui.js"></script>
+</body>
+</html>
