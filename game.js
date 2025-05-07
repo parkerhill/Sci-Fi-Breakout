@@ -1,14 +1,14 @@
 // Game constants
-const PADDLE_WIDTH = 90; // Even smaller paddle for extreme challenge
-const PADDLE_HEIGHT = 12;
-const PADDLE_SPEED = 35; // Much faster paddle movement
-const BALL_RADIUS = 7; // Smaller ball
-const INITIAL_BALL_SPEED = 16; // Extremely fast initial ball speed
-const BRICK_ROWS = 4; // Significantly fewer rows for super fast level completion
-const BRICK_COLS = 8; // Fewer columns too
+const PADDLE_WIDTH = 110; // Moderately sized paddle for balance
+const PADDLE_HEIGHT = 15;
+const PADDLE_SPEED = 28; // Fast paddle movement but not extreme
+const BALL_RADIUS = 8; // Moderately sized ball
+const INITIAL_BALL_SPEED = 11; // Fast but playable ball speed
+const BRICK_ROWS = 6; // Balanced number of rows
+const BRICK_COLS = 10; // Standard columns
 const BRICK_WIDTH = 60;
 const BRICK_HEIGHT = 20;
-const POWER_UP_DROP_RATE = 0.30; // Many more power-ups for excitement
+const POWER_UP_DROP_RATE = 0.20; // Frequent power-ups without overwhelming
 
 // Game state
 let canvas, ctx;
@@ -157,17 +157,59 @@ function createLevel(levelNumber) {
 
 // Check if brick should be created based on level pattern
 function shouldCreateBrick(level, row, col) {
-    switch (level) {
-        case 1:
-            return true; // Full grid
-        case 2:
-            return (row + col) % 2 === 0; // Checkerboard
-        case 3:
-            const centerRow = Math.floor(BRICK_ROWS / 2);
-            const centerCol = Math.floor(BRICK_COLS / 2);
-            return Math.abs(row - centerRow) + Math.abs(col - centerCol) <= 4; // Diamond
-        case 4:
-            return Math.random() > 0.3; // Sparse with gaps
+    // Apply level loop modifier if beyond level 4
+    const loopCount = Math.floor((level - 1) / 4);
+    const actualLevel = ((level - 1) % 4) + 1;
+    
+    // Common variables used across multiple cases
+    const midCol = BRICK_COLS / 2;
+    const midRow = BRICK_ROWS / 2;
+    
+    switch (actualLevel) {
+        case 1: // Spaceship/UFO shape
+            // Middle section
+            if (row >= BRICK_ROWS/3 && row < BRICK_ROWS*2/3) {
+                return true; // Full middle section
+            }
+            // Top and bottom sections - create oval/disc shape
+            const distanceFromCenter = Math.abs(col - midCol);
+            const maxDistance = 0.7 * BRICK_COLS / 2;
+            return distanceFromCenter < maxDistance;
+            
+        case 2: // Alien letters/glyphs
+            // Create vertical stripes with gaps that look like alien writing
+            if ((col % 3 === 0 && row % 4 !== 0) || 
+                (col % 5 === 0 && row % 2 !== 0) ||
+                (row === Math.floor(midRow) && col % 2 === 0)) {
+                return true;
+            }
+            return false;
+            
+        case 3: // Starburst/nebula pattern
+            // Distance from center
+            const dx = (col - midCol) / midCol;
+            const dy = (row - midRow) / midRow;
+            const distance = Math.sqrt(dx*dx + dy*dy) * 2.5;
+            
+            // Create various cosmic ray patterns
+            return (distance < 0.8) ||
+                   (Math.atan2(dy, dx) + Math.PI) % (Math.PI/4) < 0.5 ||
+                   Math.sin(distance * 5) > 0.7;
+            
+        case 4: // Futuristic circuit board
+            // Create patterns that resemble circuit paths
+            if (row % 3 === 0 || col % 3 === 0) {
+                return true; // Main circuit paths
+            }
+            if ((row + col) % 4 === 0 && Math.random() > 0.3) {
+                return true; // Connection nodes
+            }
+            // Add some random "components"
+            if (row % 2 === 0 && col % 2 === 0 && Math.random() > 0.4) {
+                return true;
+            }
+            return false;
+            
         default:
             return true;
     }
@@ -498,19 +540,129 @@ function updateBricks() {
     
     // Check each brick for collision with each ball
     bricks.forEach((brick, brickIndex) => {
-        // Draw brick with glowing outline
-        const brickColor = brick.type === 'standard' ? '#00bfff' : '#bf00ff'; // Neon blue or purple
+        // Assign special colors based on level pattern - more sci-fi color scheme
+        let brickColor;
+        let innerColor;
+        let patternType;
+        
+        // Determine brick theme based on level
+        const levelType = ((level - 1) % 4) + 1;
+        
+        switch (levelType) {
+            case 1: // UFO theme - cyan & white energy cores
+                brickColor = brick.type === 'standard' ? '#00ffdd' : '#ffffff';
+                innerColor = brick.type === 'standard' ? '#005e54' : '#aaddff';
+                patternType = 'energy';
+                break;
+            case 2: // Alien glyphs - green & yellow symbols
+                brickColor = brick.type === 'standard' ? '#88ff00' : '#ffdd00';
+                innerColor = brick.type === 'standard' ? '#204000' : '#664400';
+                patternType = 'glyph';
+                break;
+            case 3: // Nebula - pink & purple cosmic energy
+                brickColor = brick.type === 'standard' ? '#ff55ff' : '#aa22ff';
+                innerColor = brick.type === 'standard' ? '#550055' : '#330066';
+                patternType = 'cosmic';
+                break;
+            case 4: // Circuit - blue & green tech
+                brickColor = brick.type === 'standard' ? '#00ffaa' : '#00aaff';
+                innerColor = brick.type === 'standard' ? '#004433' : '#003366';
+                patternType = 'circuit';
+                break;
+        }
         
         // Draw brick outline (glowing)
         ctx.fillStyle = brickColor;
         ctx.shadowColor = brickColor;
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = 12;
         ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
         
-        // Draw inner brick (solid)
+        // Draw inner brick with subtle pattern
         ctx.shadowBlur = 0;
-        ctx.fillStyle = brick.type === 'standard' ? '#003366' : '#330066'; // Darker inner color
+        ctx.fillStyle = innerColor;
         ctx.fillRect(brick.x + 2, brick.y + 2, brick.width - 4, brick.height - 4);
+        
+        // Add sci-fi patterns inside the bricks
+        ctx.strokeStyle = brickColor;
+        ctx.lineWidth = 1;
+        
+        switch (patternType) {
+            case 'energy':
+                // Draw energy lines
+                ctx.beginPath();
+                ctx.moveTo(brick.x + 5, brick.y + brick.height/2);
+                ctx.lineTo(brick.x + brick.width - 5, brick.y + brick.height/2);
+                ctx.stroke();
+                
+                // Draw energy dots
+                for (let i = 0; i < 3; i++) {
+                    const x = brick.x + 10 + i * (brick.width-20)/2;
+                    ctx.beginPath();
+                    ctx.arc(x, brick.y + brick.height/2, 2, 0, Math.PI*2);
+                    ctx.fill();
+                }
+                break;
+                
+            case 'glyph':
+                // Alien symbols
+                const symbol = Math.floor(brick.x * brick.y) % 4;
+                ctx.beginPath();
+                if (symbol === 0) {
+                    // Triangle glyph
+                    ctx.moveTo(brick.x + brick.width/2, brick.y + 5);
+                    ctx.lineTo(brick.x + brick.width - 5, brick.y + brick.height - 5);
+                    ctx.lineTo(brick.x + 5, brick.y + brick.height - 5);
+                    ctx.closePath();
+                } else if (symbol === 1) {
+                    // Circle with dot
+                    ctx.arc(brick.x + brick.width/2, brick.y + brick.height/2, 
+                          brick.height/3, 0, Math.PI*2);
+                } else if (symbol === 2) {
+                    // Zigzag
+                    ctx.moveTo(brick.x + 5, brick.y + 5);
+                    ctx.lineTo(brick.x + brick.width/3, brick.y + brick.height - 5);
+                    ctx.lineTo(brick.x + brick.width*2/3, brick.y + 5);
+                    ctx.lineTo(brick.x + brick.width - 5, brick.y + brick.height - 5);
+                } else {
+                    // Crosshair
+                    ctx.moveTo(brick.x + brick.width/2, brick.y + 5);
+                    ctx.lineTo(brick.x + brick.width/2, brick.y + brick.height - 5);
+                    ctx.moveTo(brick.x + 5, brick.y + brick.height/2);
+                    ctx.lineTo(brick.x + brick.width - 5, brick.y + brick.height/2);
+                }
+                ctx.stroke();
+                break;
+                
+            case 'cosmic':
+                // Cosmic swirls
+                ctx.beginPath();
+                const centerX = brick.x + brick.width/2;
+                const centerY = brick.y + brick.height/2;
+                for (let i = 0; i < 4; i++) {
+                    const angle = (i / 4) * Math.PI * 2;
+                    const radius = brick.width / 4;
+                    ctx.moveTo(centerX, centerY);
+                    ctx.lineTo(centerX + Math.cos(angle) * radius, 
+                              centerY + Math.sin(angle) * radius);
+                }
+                ctx.stroke();
+                break;
+                
+            case 'circuit':
+                // Circuit paths
+                ctx.beginPath();
+                ctx.moveTo(brick.x + 5, brick.y + 5);
+                ctx.lineTo(brick.x + 5, brick.y + brick.height - 5);
+                ctx.lineTo(brick.x + brick.width - 5, brick.y + brick.height - 5);
+                
+                // Add circuit nodes
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(brick.x + 5, brick.y + 5, 3, 0, Math.PI*2);
+                ctx.arc(brick.x + brick.width - 5, brick.y + brick.height - 5, 3, 0, Math.PI*2);
+                ctx.fill();
+                break;
+        }
         
         // Check collision with each ball
         balls.forEach(ball => {
