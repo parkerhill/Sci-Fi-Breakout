@@ -1,14 +1,14 @@
 // Game constants
-const PADDLE_WIDTH = 100; // Smaller paddle for challenge
-const PADDLE_HEIGHT = 15;
-const PADDLE_SPEED = 25; // Faster paddle movement
-const BALL_RADIUS = 8; // Smaller ball
-const INITIAL_BALL_SPEED = 9; // Much faster initial ball speed
-const BRICK_ROWS = 6; // Fewer rows = faster level completion
-const BRICK_COLS = 10;
+const PADDLE_WIDTH = 90; // Even smaller paddle for extreme challenge
+const PADDLE_HEIGHT = 12;
+const PADDLE_SPEED = 35; // Much faster paddle movement
+const BALL_RADIUS = 7; // Smaller ball
+const INITIAL_BALL_SPEED = 16; // Extremely fast initial ball speed
+const BRICK_ROWS = 4; // Significantly fewer rows for super fast level completion
+const BRICK_COLS = 8; // Fewer columns too
 const BRICK_WIDTH = 60;
 const BRICK_HEIGHT = 20;
-const POWER_UP_DROP_RATE = 0.15; // More power-ups for excitement
+const POWER_UP_DROP_RATE = 0.30; // Many more power-ups for excitement
 
 // Game state
 let canvas, ctx;
@@ -33,17 +33,37 @@ let slowBallTimer = null;
 let paddleHitSound;
 let brickHitSound;
 
-// Try to load sounds
-try {
-    paddleHitSound = new Audio('thumphi.wav');
-    brickHitSound = new Audio('thumplo.wav');
-} catch (e) {
-    console.error('Could not load sounds:', e);
+// Get sound elements from the DOM
+function initSounds() {
+    paddleHitSound = document.getElementById('paddle-hit-sound');
+    brickHitSound = document.getElementById('brick-hit-sound');
+    
+    // Set higher volume for clearer sounds
+    if (paddleHitSound) paddleHitSound.volume = 0.8;
+    if (brickHitSound) brickHitSound.volume = 0.8;
+    
+    console.log('Sound initialized:', !!paddleHitSound, !!brickHitSound);
+}
+
+// Play a sound with error handling
+function playSound(sound) {
+    if (sound) {
+        try {
+            sound.currentTime = 0;
+            sound.play()
+                .catch(error => console.error('Error playing sound:', error));
+        } catch (e) {
+            console.error('Error playing sound:', e);
+        }
+    }
 }
 
 // Initialize game
 function initGame() {
     console.log('Game initialization started');
+    
+    // Initialize sounds
+    initSounds();
     
     // Get canvas and context
     canvas = document.getElementById('game-canvas');
@@ -400,10 +420,7 @@ function updateBalls() {
             ball.dy = -Math.abs(ball.dy); // Always bounce upward
             
             // Play paddle hit sound
-            try {
-                paddleHitSound.currentTime = 0;
-                paddleHitSound.play();
-            } catch(e) {}
+            playSound(paddleHitSound);
         }
         
         // Ball out of bounds (bottom)
@@ -520,10 +537,7 @@ function updateBricks() {
                 brick.hits--;
                 
                 // Play brick hit sound
-                try {
-                    brickHitSound.currentTime = 0;
-                    brickHitSound.play();
-                } catch(e) {}
+                playSound(brickHitSound);
                 
                 // Award points
                 if (brick.type === 'standard') {
