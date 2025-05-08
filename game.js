@@ -4,6 +4,9 @@ const PADDLE_HEIGHT = 15;
 const PADDLE_SPEED = 28; // Fast paddle movement but not extreme
 const BALL_RADIUS = 8; // Moderately sized ball
 const INITIAL_BALL_SPEED = 11; // Fast but playable ball speed
+const MIN_BALL_SPEED = 7; // Minimum speed to prevent slow gameplay
+const MAX_BALL_SPEED = 18; // Maximum speed to keep game playable
+const WALL_BOUNCE_ANGLE_ADJUST = 0.25; // Angle adjustment for side wall bounces
 const BRICK_ROWS = 6; // Balanced number of rows
 const BRICK_COLS = 10; // Standard columns
 const BRICK_WIDTH = 60;
@@ -126,28 +129,79 @@ function initGame() {
     gameLoop = requestAnimationFrame(update);
 }
 
-// Create level layout
+// Create level layout with Sacsayhuamán-inspired megalithic structure
 function createLevel(levelNumber) {
     bricks = [];
     const rows = BRICK_ROWS;
     const cols = BRICK_COLS;
-    const brickWidth = canvas.width / cols;
-    const brickHeight = BRICK_HEIGHT;
+    
+    // Base brick dimensions
+    const baseBrickWidth = canvas.width / cols;
+    const baseBrickHeight = BRICK_HEIGHT;
     
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Create bricks based on level pattern
+    // Generate megalithic brick pattern with irregular shapes that fit together
+    // Create a jigsaw-like pattern with interlocking stones inspired by Incan architecture
+    
+    // First create a grid of points with slight variations
+    const gridPoints = [];
+    const jitterAmount = baseBrickWidth * 0.2; // Amount of irregularity in the grid
+    
+    // Create grid points with jitter (one more than needed to define the brick boundaries)
+    for (let r = 0; r <= rows; r++) {
+        gridPoints[r] = [];
+        for (let c = 0; c <= cols; c++) {
+            // Add jitter to points (except edges)
+            let jitterX = 0;
+            let jitterY = 0;
+            
+            // Don't jitter the outer edges to maintain canvas boundaries
+            if (r > 0 && r < rows && c > 0 && c < cols) {
+                jitterX = (Math.random() - 0.5) * jitterAmount;
+                jitterY = (Math.random() - 0.5) * jitterAmount;
+            }
+            
+            gridPoints[r][c] = {
+                x: c * baseBrickWidth + jitterX,
+                y: r * baseBrickHeight + 50 + jitterY
+            };
+        }
+    }
+    
+    // Create polygonal bricks based on grid points
     for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
             if (shouldCreateBrick(levelNumber, row, col)) {
+                // Define the four corners of this brick using the grid points
+                const points = [
+                    gridPoints[row][col],       // Top-left
+                    gridPoints[row][col+1],     // Top-right
+                    gridPoints[row+1][col+1],   // Bottom-right
+                    gridPoints[row+1][col]      // Bottom-left
+                ];
+                
+                // Calculate center for collision detection
+                const centerX = (points[0].x + points[1].x + points[2].x + points[3].x) / 4;
+                const centerY = (points[0].y + points[1].y + points[2].y + points[3].y) / 4;
+                
+                // Estimate width and height for collision detection
+                const width = Math.max(points[1].x - points[0].x, points[2].x - points[3].x);
+                const height = Math.max(points[3].y - points[0].y, points[2].y - points[1].y);
+                
                 const brick = {
-                    x: col * brickWidth,
-                    y: row * brickHeight + 50,
-                    width: brickWidth,
-                    height: brickHeight,
+                    points: points, // Store polygon points for drawing
+                    x: centerX - width/2, // Approximate rectangle for collision
+                    y: centerY - height/2,
+                    width: width,
+                    height: height,
+                    centerX: centerX,
+                    centerY: centerY,
                     hits: getBrickHits(levelNumber, row, col),
-                    type: getBrickType(levelNumber, row, col)
+                    type: getBrickType(levelNumber, row, col),
+                    row: row,
+                    col: col
                 };
                 bricks.push(brick);
             }
@@ -402,18 +456,25 @@ function setupEventListeners() {
 
 // Create a new ball
 function createBall() {
-    // Add randomness to make each ball feel unique
-    const randomSpeed = INITIAL_BALL_SPEED * (0.9 + Math.random() * 0.3); // +/- 10-30%
-    return {
+    // Create random angle between -60 and 60 degrees (but not too horizontal)
+    let angle;
+    do {
+        angle = (Math.random() * 120 - 60) * Math.PI / 180;
+    } while (Math.abs(angle) < 0.3); // Ensure not too horizontal
+    
+    const speed = INITIAL_BALL_SPEED;
+    
+    const ball = {
         x: canvas.width / 2,
-        y: canvas.height - 30 - PADDLE_HEIGHT,
+        y: canvas.height - 30,
         radius: BALL_RADIUS,
-        dx: randomSpeed * (Math.random() > 0.5 ? 1 : -1), // Random direction
-        dy: -randomSpeed,
-        speed: randomSpeed * (1 + (level - 1) * 0.15), // Increase speed with level (15% per level instead of 5%)
-        trail: [], // For enhanced trail effect
-        color: getRandomNeonColor() // Random neon color for each ball
+        dx: Math.sin(angle) * speed,
+        dy: -Math.abs(Math.cos(angle) * speed), // Always initially moving upward
+        color: getRandomNeonColor(), // Assign a random neon color
+        // Store previous positions for trail effect
+        trail: []
     };
+    return ball;
 }
 
 // Update paddle position
@@ -427,67 +488,184 @@ function updatePaddle() {
 
 // Update all balls
 function updateBalls() {
-    // Keep track of balls to remove
     const ballsToRemove = [];
     
-    // Update each ball
     balls.forEach((ball, index) => {
-        // Apply ball speed (adjusted for slow ball power-up)
-        const speedMultiplier = slowBallActive ? 0.8 : 1.0;
+        // Calculate current ball speed based on dx, dy components
+        const ballSpeed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
         
-        // Move ball
-        ball.x += ball.dx * speedMultiplier;
-        ball.y += ball.dy * speedMultiplier;
-        
-        // Ball-wall collisions
-        if (ball.x - ball.radius < 0 || ball.x + ball.radius > canvas.width) {
-            ball.dx = -ball.dx; // Reverse horizontal direction
+        // Apply slow ball power-up effect but respect minimum speed
+        let currentSpeed = slowBallActive ? ballSpeed * 0.4 : ballSpeed;
+        if (currentSpeed < MIN_BALL_SPEED) {
+            // Scale both dx and dy to maintain direction but increase speed
+            const scaleFactor = MIN_BALL_SPEED / currentSpeed;
+            ball.dx *= scaleFactor;
+            ball.dy *= scaleFactor;
+        } else if (currentSpeed > MAX_BALL_SPEED) {
+            // Cap at maximum speed
+            const scaleFactor = MAX_BALL_SPEED / currentSpeed;
+            ball.dx *= scaleFactor;
+            ball.dy *= scaleFactor;
         }
         
+        // Move the ball (without gravity)
+        ball.x += ball.dx;
+        ball.y += ball.dy;
+        
+        // Check boundary collisions
+        
+        // Left and right walls with anti-excessive-side-bounce logic
+        if (ball.x - ball.radius < 0) {
+            ball.x = ball.radius; // Place ball at the boundary
+            ball.dx = -ball.dx; // Reverse x direction
+            
+            // If vertical velocity is too low, adjust the angle slightly
+            if (Math.abs(ball.dy) < 3) {
+                // Modify angle without adding gravity
+                // Instead, we'll rotate the velocity vector slightly
+                const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+                const currentAngle = Math.atan2(ball.dy, ball.dx);
+                
+                // Move angle toward vertical (either up or down depending on current direction)
+                const newAngle = currentAngle + (ball.dy < 0 ? -WALL_BOUNCE_ANGLE_ADJUST : WALL_BOUNCE_ANGLE_ADJUST);
+                
+                // Apply the new velocity components
+                ball.dx = Math.cos(newAngle) * speed;
+                ball.dy = Math.sin(newAngle) * speed;
+            }
+            
+            // Randomize dx slightly to prevent repetitive patterns
+            ball.dx *= (0.98 + Math.random() * 0.04);
+            
+            playSound(paddleHitSound);
+        } else if (ball.x + ball.radius > canvas.width) {
+            ball.x = canvas.width - ball.radius; // Place ball at the boundary
+            ball.dx = -ball.dx; // Reverse x direction
+            
+            // If vertical velocity is too low, adjust the angle slightly
+            if (Math.abs(ball.dy) < 3) {
+                // Modify angle without adding gravity
+                // Instead, we'll rotate the velocity vector slightly
+                const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+                const currentAngle = Math.atan2(ball.dy, ball.dx);
+                
+                // Move angle toward vertical (either up or down depending on current direction)
+                const newAngle = currentAngle + (ball.dy < 0 ? -WALL_BOUNCE_ANGLE_ADJUST : WALL_BOUNCE_ANGLE_ADJUST);
+                
+                // Apply the new velocity components
+                ball.dx = Math.cos(newAngle) * speed;
+                ball.dy = Math.sin(newAngle) * speed;
+            }
+            
+            // Randomize dx slightly to prevent repetitive patterns
+            ball.dx *= (0.98 + Math.random() * 0.04);
+            
+            playSound(paddleHitSound);
+        }
+        
+        // Top wall with anti-stalling logic
         if (ball.y - ball.radius < 0) {
-            ball.dy = -ball.dy; // Reverse vertical direction
+            ball.y = ball.radius; // Place ball at the boundary
+            ball.dy = -ball.dy; // Reverse y direction
+            
+            // Randomize dx slightly to prevent up-down stalling
+            if (Math.abs(ball.dx) < 2) {
+                // If horizontal movement is too small, add some randomness
+                const direction = Math.random() > 0.5 ? 1 : -1;
+                ball.dx += direction * (1 + Math.random() * 2);
+            }
+            
+            playSound(paddleHitSound);
         }
         
-        // Ball-paddle collision
+        // Bottom (lose life if ball goes below the screen)
+        if (ball.y + ball.radius > canvas.height) {
+            // Mark this ball for removal
+            ballsToRemove.push(index);
+        }
+        
+        // Check paddle collision using rectangular detection plus corner handling
         if (ball.y + ball.radius > paddle.y && 
-            ball.x > paddle.x && 
-            ball.x < paddle.x + paddle.width && 
-            ball.y < paddle.y + paddle.height) {
+            ball.y - ball.radius < paddle.y + paddle.height && 
+            ball.x + ball.radius > paddle.x && 
+            ball.x - ball.radius < paddle.x + paddle.width) {
             
-            // Calculate hit position relative to paddle center (range: -0.5 to 0.5)
-            const hitPos = (ball.x - (paddle.x + paddle.width / 2)) / paddle.width;
+            // Determine if hitting the top of the paddle or the sides
+            const hitTop = ball.y < paddle.y + paddle.height / 2;
             
-            // Adjust ball angle based on hit position
-            ball.dx = ball.speed * hitPos * 2; // More angle for edge hits
-            ball.dy = -Math.abs(ball.dy); // Always bounce upward
+            if (hitTop) {
+                // Place ball at the top boundary of the paddle
+                ball.y = paddle.y - ball.radius;
+                
+                // Calculate reflection angle based on where on the paddle the ball hit
+                // This creates more dynamic angles based on paddle position
+                const hitPosition = (ball.x - paddle.x) / paddle.width;
+                const angleMultiplier = hitPosition * 2 - 1; // -1 to 1 range
+                const maxAngle = Math.PI / 3; // 60 degrees max angle
+                
+                // Calculate new angle
+                const angle = angleMultiplier * maxAngle;
+                const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+                
+                // Set new velocity based on angle and speed
+                // Ensure minimum upward velocity to prevent stalling
+                ball.dx = Math.sin(angle) * speed;
+                ball.dy = -Math.abs(Math.cos(angle) * speed);
+                
+                // Add a small random factor to prevent repetitive patterns
+                ball.dx += (Math.random() - 0.5) * 0.5;
+            } else {
+                // Side hit (less common, just reverse x velocity)
+                ball.dx = -ball.dx;
+                // Add slight random y component to avoid side-trapping
+                ball.dy += (Math.random() - 0.5) * 0.8;
+            }
+            
+            // Enforce minimum speed after paddle hit
+            const newSpeed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
+            if (newSpeed < MIN_BALL_SPEED) {
+                const scaleFactor = MIN_BALL_SPEED / newSpeed;
+                ball.dx *= scaleFactor;
+                ball.dy *= scaleFactor;
+            }
             
             // Play paddle hit sound
             playSound(paddleHitSound);
         }
-        
-        // Ball out of bounds (bottom)
-        if (ball.y - ball.radius > canvas.height) {
-            if (balls.length === 1) {
-                // Last ball lost - lose a life
-                lives--;
-                
-                if (lives > 0) {
-                    // Reset ball
-                    ball.x = canvas.width / 2;
-                    ball.y = canvas.height - 30 - PADDLE_HEIGHT;
-                    ball.dx = INITIAL_BALL_SPEED * (Math.random() > 0.5 ? 1 : -1);
-                    ball.dy = -INITIAL_BALL_SPEED;
-                }
-            } else {
-                // Remove this ball
-                ballsToRemove.push(index);
-            }
-        }
     });
     
-    // Remove lost balls (in reverse order to avoid index issues)
-    for (let i = ballsToRemove.length - 1; i >= 0; i--) {
-        balls.splice(ballsToRemove[i], 1);
+    // If all balls are lost (or there is only one and it's being removed), lose a life
+    if (ballsToRemove.length === balls.length) {
+        lives--;
+        
+        if (lives <= 0) {
+            // Game over
+            window.gameOver();
+            return;
+        }
+        
+        // Reset ball
+        balls = [createBall()];
+        
+        // Reset paddle position
+        paddle.x = canvas.width / 2 - paddle.width / 2;
+        
+        // Cancel any active power-ups
+        if (widePaddleTimer) {
+            clearTimeout(widePaddleTimer);
+            widePaddleActive = false;
+            paddle.width = PADDLE_WIDTH;
+        }
+        
+        if (slowBallTimer) {
+            clearTimeout(slowBallTimer);
+            slowBallActive = false;
+        }
+    } else {
+        // Otherwise just remove the specific balls that went out of bounds
+        for (let i = ballsToRemove.length - 1; i >= 0; i--) {
+            balls.splice(ballsToRemove[i], 1);
+        }
     }
     
     // Draw all balls
@@ -499,10 +677,10 @@ class Particle {
     constructor(x, y, color) {
         this.x = x;
         this.y = y;
-        this.color = color;
         this.size = Math.random() * 3 + 2;
         this.speedX = Math.random() * 6 - 3;
         this.speedY = Math.random() * 6 - 3;
+        this.color = color;
         this.lifetime = 30;
     }
     
@@ -527,6 +705,60 @@ class Particle {
 let particles = [];
 
 // Update bricks and check for collisions
+// Polygon collision helper functions
+
+// Check if a point is inside a polygon
+function isPointInPolygon(x, y, polygon) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].x, yi = polygon[i].y;
+        const xj = polygon[j].x, yj = polygon[j].y;
+        
+        const intersect = ((yi > y) !== (yj > y))
+            && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+// Calculate distance from point to a line segment
+function distToSegment(px, py, x1, y1, x2, y2) {
+    const A = px - x1;
+    const B = py - y1;
+    const C = x2 - x1;
+    const D = y2 - y1;
+
+    const dot = A * C + B * D;
+    const len_sq = C * C + D * D;
+    let param = -1;
+    if (len_sq !== 0) param = dot / len_sq;
+
+    let xx, yy;
+
+    if (param < 0) {
+        xx = x1;
+        yy = y1;
+    } else if (param > 1) {
+        xx = x2;
+        yy = y2;
+    } else {
+        xx = x1 + param * C;
+        yy = y1 + param * D;
+    }
+
+    const dx = px - xx;
+    const dy = py - yy;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+// Create explosion particles at a location
+function addExplosionParticles(x, y, color = '#ffaa00') {
+    const particleCount = 15;
+    for (let i = 0; i < particleCount; i++) {
+        particles.push(new Particle(x, y, color));
+    }
+}
+
 function updateBricks() {
     // Keep track of bricks to remove
     const bricksToRemove = [];
@@ -540,195 +772,323 @@ function updateBricks() {
     
     // Check each brick for collision with each ball
     bricks.forEach((brick, brickIndex) => {
-        // Assign special colors based on level pattern - more sci-fi color scheme
+        // Assign colors based on Sacsayhuamán stonework, with sci-fi influence
         let brickColor;
         let innerColor;
-        let patternType;
+        let edgeColor;
         
-        // Determine brick theme based on level
+        // Determine brick theme based on level, but keep a consistent stone-like palette
         const levelType = ((level - 1) % 4) + 1;
         
+        // Generate slight color variations based on brick position to simulate natural stone variation
+        const colorVariation = (brick.row * 3 + brick.col * 5) % 20 / 100;
+        
         switch (levelType) {
-            case 1: // UFO theme - cyan & white energy cores
-                brickColor = brick.type === 'standard' ? '#00ffdd' : '#ffffff';
-                innerColor = brick.type === 'standard' ? '#005e54' : '#aaddff';
-                patternType = 'energy';
+            case 1: // Granite-like with blue energy seams
+                brickColor = brick.type === 'standard' ? 
+                    `rgb(${120+colorVariation*40}, ${120+colorVariation*40}, ${130+colorVariation*40})` : 
+                    `rgb(${140+colorVariation*40}, ${140+colorVariation*40}, ${150+colorVariation*40})`;
+                innerColor = brick.type === 'standard' ? 
+                    `rgb(${100+colorVariation*30}, ${100+colorVariation*30}, ${110+colorVariation*30})` : 
+                    `rgb(${120+colorVariation*30}, ${120+colorVariation*30}, ${130+colorVariation*30})`;
+                edgeColor = brick.type === 'standard' ? '#00aaff' : '#00ffff';
                 break;
-            case 2: // Alien glyphs - green & yellow symbols
-                brickColor = brick.type === 'standard' ? '#88ff00' : '#ffdd00';
-                innerColor = brick.type === 'standard' ? '#204000' : '#664400';
-                patternType = 'glyph';
+            case 2: // Andesite-like with green energy seams
+                brickColor = brick.type === 'standard' ? 
+                    `rgb(${110+colorVariation*30}, ${115+colorVariation*30}, ${105+colorVariation*30})` : 
+                    `rgb(${130+colorVariation*30}, ${135+colorVariation*30}, ${125+colorVariation*30})`;
+                innerColor = brick.type === 'standard' ? 
+                    `rgb(${90+colorVariation*30}, ${95+colorVariation*30}, ${85+colorVariation*30})` : 
+                    `rgb(${110+colorVariation*30}, ${115+colorVariation*30}, ${105+colorVariation*30})`;
+                edgeColor = brick.type === 'standard' ? '#00ff88' : '#88ff00';
                 break;
-            case 3: // Nebula - pink & purple cosmic energy
-                brickColor = brick.type === 'standard' ? '#ff55ff' : '#aa22ff';
-                innerColor = brick.type === 'standard' ? '#550055' : '#330066';
-                patternType = 'cosmic';
+            case 3: // Basalt-like with purple energy seams
+                brickColor = brick.type === 'standard' ? 
+                    `rgb(${80+colorVariation*30}, ${85+colorVariation*30}, ${95+colorVariation*30})` : 
+                    `rgb(${100+colorVariation*30}, ${105+colorVariation*30}, ${115+colorVariation*30})`;
+                innerColor = brick.type === 'standard' ? 
+                    `rgb(${60+colorVariation*30}, ${65+colorVariation*30}, ${75+colorVariation*30})` : 
+                    `rgb(${80+colorVariation*30}, ${85+colorVariation*30}, ${95+colorVariation*30})`;
+                edgeColor = brick.type === 'standard' ? '#aa00ff' : '#ff00aa';
                 break;
-            case 4: // Circuit - blue & green tech
-                brickColor = brick.type === 'standard' ? '#00ffaa' : '#00aaff';
-                innerColor = brick.type === 'standard' ? '#004433' : '#003366';
-                patternType = 'circuit';
+            case 4: // Limestone-like with yellow energy seams
+                brickColor = brick.type === 'standard' ? 
+                    `rgb(${180+colorVariation*30}, ${175+colorVariation*30}, ${160+colorVariation*30})` : 
+                    `rgb(${200+colorVariation*30}, ${195+colorVariation*30}, ${180+colorVariation*30})`;
+                innerColor = brick.type === 'standard' ? 
+                    `rgb(${160+colorVariation*30}, ${155+colorVariation*30}, ${140+colorVariation*30})` : 
+                    `rgb(${180+colorVariation*30}, ${175+colorVariation*30}, ${160+colorVariation*30})`;
+                edgeColor = brick.type === 'standard' ? '#ffaa00' : '#ffff00';
                 break;
         }
         
-        // Draw brick outline (glowing)
-        ctx.fillStyle = brickColor;
-        ctx.shadowColor = brickColor;
-        ctx.shadowBlur = 12;
-        ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
-        
-        // Draw inner brick with subtle pattern
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = innerColor;
-        ctx.fillRect(brick.x + 2, brick.y + 2, brick.width - 4, brick.height - 4);
-        
-        // Add sci-fi patterns inside the bricks
-        ctx.strokeStyle = brickColor;
-        ctx.lineWidth = 1;
-        
-        switch (patternType) {
-            case 'energy':
-                // Draw energy lines
-                ctx.beginPath();
-                ctx.moveTo(brick.x + 5, brick.y + brick.height/2);
-                ctx.lineTo(brick.x + brick.width - 5, brick.y + brick.height/2);
-                ctx.stroke();
-                
-                // Draw energy dots
+        // Draw Sacsayhuamán-style megalithic polygonal brick
+        if (brick.points) {
+            // Create stone texture fill pattern
+            const noiseCanvas = document.createElement('canvas');
+            noiseCanvas.width = brick.width;
+            noiseCanvas.height = brick.height;
+            const noiseCtx = noiseCanvas.getContext('2d');
+            
+            // Fill with base color
+            noiseCtx.fillStyle = innerColor;
+            noiseCtx.fillRect(0, 0, brick.width, brick.height);
+            
+            // Add stone texture with noise
+            for (let i = 0; i < brick.width * brick.height * 0.05; i++) {
+                const nx = Math.random() * brick.width;
+                const ny = Math.random() * brick.height;
+                const size = Math.random() * 3 + 1;
+                const alpha = Math.random() * 0.1 + 0.05;
+                noiseCtx.fillStyle = `rgba(0,0,0,${alpha})`;
+                noiseCtx.beginPath();
+                noiseCtx.arc(nx, ny, size, 0, Math.PI * 2);
+                noiseCtx.fill();
+            }
+            
+            // Create pattern from the noise canvas
+            const stonePattern = ctx.createPattern(noiseCanvas, 'no-repeat');
+            
+            // Draw the brick polygon
+            ctx.save();
+            
+            // Draw brick outer shape with glow
+            ctx.shadowColor = edgeColor;
+            ctx.shadowBlur = 8;
+            ctx.fillStyle = brickColor;
+            ctx.beginPath();
+            ctx.moveTo(brick.points[0].x, brick.points[0].y);
+            for (let i = 1; i < brick.points.length; i++) {
+                ctx.lineTo(brick.points[i].x, brick.points[i].y);
+            }
+            ctx.closePath();
+            ctx.fill();
+            
+            // Draw the inner brick with texture pattern and no glow
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = stonePattern;
+            
+            // Create an inner polygon (slightly smaller)
+            const innerPoints = brick.points.map(p => {
+                const dx = p.x - brick.centerX;
+                const dy = p.y - brick.centerY;
+                const scale = 0.95; // 5% smaller
+                return {
+                    x: brick.centerX + dx * scale,
+                    y: brick.centerY + dy * scale
+                };
+            });
+            
+            ctx.beginPath();
+            ctx.moveTo(innerPoints[0].x, innerPoints[0].y);
+            for (let i = 1; i < innerPoints.length; i++) {
+                ctx.lineTo(innerPoints[i].x, innerPoints[i].y);
+            }
+            ctx.closePath();
+            ctx.fill();
+            
+            // Draw energy seams around the edges
+            ctx.strokeStyle = edgeColor;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(brick.points[0].x, brick.points[0].y);
+            for (let i = 1; i < brick.points.length; i++) {
+                ctx.lineTo(brick.points[i].x, brick.points[i].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+            
+            // Add sci-fi elements: energy symbols or glyphs etched into the stone
+            ctx.strokeStyle = edgeColor;
+            ctx.lineWidth = 1;
+            
+            // Calculate a symbol based on brick position for consistency
+            const symbolId = (brick.row * 7 + brick.col * 3) % 5;
+            ctx.beginPath();
+            
+            // Use brick center for drawing symbols
+            if (symbolId === 0) {
+                // Simple spiral glyph
+                const radius = Math.min(brick.width, brick.height) / 8;
+                for (let i = 0; i < 6; i++) {
+                    const angle = i / 6 * Math.PI * 2;
+                    const r = radius * (1 - i / 12);
+                    const x = brick.centerX + Math.cos(angle) * r;
+                    const y = brick.centerY + Math.sin(angle) * r;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+            } else if (symbolId === 1) {
+                // Three-line symbol
+                const size = Math.min(brick.width, brick.height) / 6;
+                ctx.moveTo(brick.centerX - size, brick.centerY - size);
+                ctx.lineTo(brick.centerX + size, brick.centerY + size);
+                ctx.moveTo(brick.centerX - size, brick.centerY);
+                ctx.lineTo(brick.centerX + size, brick.centerY);
+                ctx.moveTo(brick.centerX - size, brick.centerY + size);
+                ctx.lineTo(brick.centerX + size, brick.centerY - size);
+            } else if (symbolId === 2) {
+                // Circle with dot
+                const radius = Math.min(brick.width, brick.height) / 6;
+                ctx.arc(brick.centerX, brick.centerY, radius, 0, Math.PI * 2);
+                ctx.moveTo(brick.centerX + 2, brick.centerY);
+                ctx.arc(brick.centerX, brick.centerY, 2, 0, Math.PI * 2);
+            } else if (symbolId === 3) {
+                // Square/diamond pattern
+                const size = Math.min(brick.width, brick.height) / 8;
+                ctx.moveTo(brick.centerX, brick.centerY - size);
+                ctx.lineTo(brick.centerX + size, brick.centerY);
+                ctx.lineTo(brick.centerX, brick.centerY + size);
+                ctx.lineTo(brick.centerX - size, brick.centerY);
+                ctx.closePath();
+            } else {
+                // Line patterns
+                const size = Math.min(brick.width, brick.height) / 5;
                 for (let i = 0; i < 3; i++) {
-                    const x = brick.x + 10 + i * (brick.width-20)/2;
-                    ctx.beginPath();
-                    ctx.arc(x, brick.y + brick.height/2, 2, 0, Math.PI*2);
-                    ctx.fill();
+                    const offset = (i - 1) * size / 2;
+                    ctx.moveTo(brick.centerX - size / 2, brick.centerY + offset);
+                    ctx.lineTo(brick.centerX + size / 2, brick.centerY + offset);
                 }
-                break;
-                
-            case 'glyph':
-                // Alien symbols
-                const symbol = Math.floor(brick.x * brick.y) % 4;
-                ctx.beginPath();
-                if (symbol === 0) {
-                    // Triangle glyph
-                    ctx.moveTo(brick.x + brick.width/2, brick.y + 5);
-                    ctx.lineTo(brick.x + brick.width - 5, brick.y + brick.height - 5);
-                    ctx.lineTo(brick.x + 5, brick.y + brick.height - 5);
-                    ctx.closePath();
-                } else if (symbol === 1) {
-                    // Circle with dot
-                    ctx.arc(brick.x + brick.width/2, brick.y + brick.height/2, 
-                          brick.height/3, 0, Math.PI*2);
-                } else if (symbol === 2) {
-                    // Zigzag
-                    ctx.moveTo(brick.x + 5, brick.y + 5);
-                    ctx.lineTo(brick.x + brick.width/3, brick.y + brick.height - 5);
-                    ctx.lineTo(brick.x + brick.width*2/3, brick.y + 5);
-                    ctx.lineTo(brick.x + brick.width - 5, brick.y + brick.height - 5);
-                } else {
-                    // Crosshair
-                    ctx.moveTo(brick.x + brick.width/2, brick.y + 5);
-                    ctx.lineTo(brick.x + brick.width/2, brick.y + brick.height - 5);
-                    ctx.moveTo(brick.x + 5, brick.y + brick.height/2);
-                    ctx.lineTo(brick.x + brick.width - 5, brick.y + brick.height/2);
-                }
-                ctx.stroke();
-                break;
-                
-            case 'cosmic':
-                // Cosmic swirls
-                ctx.beginPath();
-                const centerX = brick.x + brick.width/2;
-                const centerY = brick.y + brick.height/2;
-                for (let i = 0; i < 4; i++) {
-                    const angle = (i / 4) * Math.PI * 2;
-                    const radius = brick.width / 4;
-                    ctx.moveTo(centerX, centerY);
-                    ctx.lineTo(centerX + Math.cos(angle) * radius, 
-                              centerY + Math.sin(angle) * radius);
-                }
-                ctx.stroke();
-                break;
-                
-            case 'circuit':
-                // Circuit paths
-                ctx.beginPath();
-                ctx.moveTo(brick.x + 5, brick.y + 5);
-                ctx.lineTo(brick.x + 5, brick.y + brick.height - 5);
-                ctx.lineTo(brick.x + brick.width - 5, brick.y + brick.height - 5);
-                
-                // Add circuit nodes
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.arc(brick.x + 5, brick.y + 5, 3, 0, Math.PI*2);
-                ctx.arc(brick.x + brick.width - 5, brick.y + brick.height - 5, 3, 0, Math.PI*2);
-                ctx.fill();
-                break;
+            }
+            ctx.stroke();
+            
+            ctx.restore();
         }
         
         // Check collision with each ball
         balls.forEach(ball => {
+            // Using the rectangular approximation for initial detection (broad phase)
             if (ball.x + ball.radius > brick.x && 
                 ball.x - ball.radius < brick.x + brick.width && 
                 ball.y + ball.radius > brick.y && 
                 ball.y - ball.radius < brick.y + brick.height) {
                 
-                // Determine collision side (top/bottom or left/right)
-                const overlapX = Math.min(ball.x + ball.radius - brick.x, brick.x + brick.width - (ball.x - ball.radius));
-                const overlapY = Math.min(ball.y + ball.radius - brick.y, brick.y + brick.height - (ball.y - ball.radius));
+                // For polygonal bricks, do more precise collision detection
+                let collision = false;
+                let collisionNormalX = 0;
+                let collisionNormalY = 0;
                 
-                if (overlapX < overlapY) {
-                    ball.dx = -ball.dx; // Hit on sides
+                // If we have polygon points, use them for more accurate detection
+                if (brick.points) {
+                    // Check if the ball center is inside the polygon
+                    if (isPointInPolygon(ball.x, ball.y, brick.points)) {
+                        collision = true;
+                        
+                        // Find the closest edge to determine collision normal
+                        let minDist = Number.MAX_VALUE;
+                        
+                        for (let i = 0; i < brick.points.length; i++) {
+                            const p1 = brick.points[i];
+                            const p2 = brick.points[(i + 1) % brick.points.length];
+                            
+                            // Calculate distance from ball center to line segment
+                            const dist = distToSegment(ball.x, ball.y, p1.x, p1.y, p2.x, p2.y);
+                            
+                            if (dist < minDist) {
+                                minDist = dist;
+                                
+                                // Calculate line normal (perpendicular to the edge)
+                                const edgeX = p2.x - p1.x;
+                                const edgeY = p2.y - p1.y;
+                                const length = Math.sqrt(edgeX * edgeX + edgeY * edgeY);
+                                
+                                // Normal points outward from the polygon
+                                collisionNormalX = -edgeY / length;
+                                collisionNormalY = edgeX / length;
+                            }
+                        }
+                    } else {
+                        // Check if ball intersects with any of the polygon edges
+                        for (let i = 0; i < brick.points.length; i++) {
+                            const p1 = brick.points[i];
+                            const p2 = brick.points[(i + 1) % brick.points.length];
+                            
+                            // Check if ball intersects with this edge
+                            if (distToSegment(ball.x, ball.y, p1.x, p1.y, p2.x, p2.y) <= ball.radius) {
+                                collision = true;
+                                
+                                // Calculate line normal (perpendicular to the edge)
+                                const edgeX = p2.x - p1.x;
+                                const edgeY = p2.y - p1.y;
+                                const length = Math.sqrt(edgeX * edgeX + edgeY * edgeY);
+                                
+                                // Normal points outward from the polygon
+                                collisionNormalX = -edgeY / length;
+                                collisionNormalY = edgeX / length;
+                                break; // Found collision edge, no need to check more
+                            }
+                        }
+                    }
                 } else {
-                    ball.dy = -ball.dy; // Hit on top/bottom
-                }
-                
-                // Add slight randomness to bounce for more dynamic gameplay
-                ball.dx += (Math.random() - 0.5) * 0.5;
-                ball.dy += (Math.random() - 0.5) * 0.5;
-                
-                // Reduce brick hits
-                brick.hits--;
-                
-                // Play brick hit sound
-                playSound(brickHitSound);
-                
-                // Award points
-                if (brick.type === 'standard') {
-                    score += 10;
-                } else {
-                    score += 20;
-                }
-                
-                // If brick is destroyed
-                if (brick.hits <= 0) {
-                    bricksToRemove.push(brickIndex);
+                    // Fallback to rectangular collision if no points defined
+                    collision = true;
                     
-                    // Create explosion effect
-                    const particleCount = brick.type === 'standard' ? 15 : 25;
-                    for (let i = 0; i < particleCount; i++) {
-                        particles.push(new Particle(
-                            brick.x + brick.width / 2,
-                            brick.y + brick.height / 2,
-                            brickColor
-                        ));
+                    // Calculate where the ball hit the brick
+                    const hitLeft = ball.x < brick.x;
+                    const hitRight = ball.x > brick.x + brick.width;
+                    const hitTop = ball.y < brick.y;
+                    const hitBottom = ball.y > brick.y + brick.height;
+                    
+                    // Set normal based on which side was hit
+                    if ((hitLeft || hitRight) && !hitTop && !hitBottom) {
+                        collisionNormalX = hitLeft ? -1 : 1;
+                        collisionNormalY = 0;
+                    } else {
+                        collisionNormalX = 0;
+                        collisionNormalY = hitTop ? -1 : 1;
+                    }
+                }
+                
+                // If collision detected, reflect ball and handle brick hit
+                if (collision) {
+                    // Reflect ball direction based on collision normal
+                    if (Math.abs(collisionNormalX) > Math.abs(collisionNormalY)) {
+                        ball.dx = -ball.dx;
+                    } else {
+                        ball.dy = -ball.dy;
                     }
                     
-                    // Maybe spawn a power-up (higher chance for tough bricks)
-                    const powerUpChance = brick.type === 'standard' ? POWER_UP_DROP_RATE : POWER_UP_DROP_RATE * 1.5;
-                    if (Math.random() < powerUpChance) {
-                        spawnPowerUp(brick.x + brick.width / 2, brick.y + brick.height / 2);
+                    // Add explosion particles
+                    const explosionX = brick.centerX || (brick.x + brick.width/2);
+                    const explosionY = brick.centerY || (brick.y + brick.height/2);
+                    addExplosionParticles(explosionX, explosionY, edgeColor);
+                    
+                    // Decrement brick hits and apply scoring
+                    brick.hits--;
+                    if (brick.hits <= 0) {
+                        // Remove the brick
+                        score += brick.type === 'power' ? 15 : 10;
+                        // Play sound
+                        playSound(brickHitSound);
+                        
+                        // Chance to spawn a power-up
+                        if (brick.type === 'power' || Math.random() < POWER_UP_DROP_RATE) {
+                            spawnPowerUp(explosionX, explosionY);
+                        }
+                        
+                        // Mark brick for removal
+                        bricksToRemove.push(brickIndex);
+                    } else {
+                        // Play hit sound
+                        playSound(brickHitSound);
                     }
                 }
             }
         });
     });
     
-    // Remove destroyed bricks (in reverse order)
+    // Remove destroyed bricks (in reverse order to prevent index issues)
     for (let i = bricksToRemove.length - 1; i >= 0; i--) {
         bricks.splice(bricksToRemove[i], 1);
     }
+    
+    // Check if level is complete
+    if (bricks.length === 0) {
+        levelUp();
+    }
 }
 
-// Spawn a power-up
+// Spawn a power-up at the specified position
 function spawnPowerUp(x, y) {
     const types = ['widePaddle', 'multiBall', 'slowBall'];
     const type = types[Math.floor(Math.random() * types.length)];
@@ -743,9 +1103,9 @@ function spawnPowerUp(x, y) {
     });
 }
 
-// Update power-ups
+// Update and draw power-ups
 function updatePowerUps() {
-    // Keep track of power-ups to remove
+    // Track power-ups to remove
     const powerUpsToRemove = [];
     
     // Update each power-up
@@ -753,7 +1113,7 @@ function updatePowerUps() {
         // Move power-up down
         powerUp.y += powerUp.dy;
         
-        // Draw power-up
+        // Draw power-up (glowing orb)
         let color;
         switch (powerUp.type) {
             case 'widePaddle': 
@@ -763,11 +1123,11 @@ function updatePowerUps() {
                 color = '#ff0000'; // Red
                 break;
             case 'slowBall': 
-                color = '#0000ff'; // Blue
+                color = '#0088ff'; // Blue
                 break;
         }
         
-        // Draw power-up (glowing orb)
+        // Draw glowing power-up orb
         ctx.fillStyle = color;
         ctx.shadowColor = color;
         ctx.shadowBlur = 15;
@@ -777,15 +1137,13 @@ function updatePowerUps() {
         ctx.shadowBlur = 0;
         
         // Check collision with paddle
-        if (powerUp.y + powerUp.height > paddle.y && 
-            powerUp.x > paddle.x && 
-            powerUp.x < paddle.x + paddle.width) {
+        if (powerUp.y + 10 > paddle.y && 
+            powerUp.y - 10 < paddle.y + paddle.height && 
+            powerUp.x + 10 > paddle.x && 
+            powerUp.x - 10 < paddle.x + paddle.width) {
             
             // Apply power-up effect
             applyPowerUp(powerUp.type);
-            
-            // Award points
-            score += 100;
             
             // Remove power-up
             powerUpsToRemove.push(index);
@@ -797,7 +1155,7 @@ function updatePowerUps() {
         }
     });
     
-    // Remove collected power-ups
+    // Remove collected or missed power-ups (in reverse order)
     for (let i = powerUpsToRemove.length - 1; i >= 0; i--) {
         powerUps.splice(powerUpsToRemove[i], 1);
     }
