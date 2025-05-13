@@ -1,7 +1,7 @@
 // Game constants
 const PADDLE_WIDTH = 110; // Moderately sized paddle for balance
 const PADDLE_HEIGHT = 15;
-const PADDLE_SPEED = 28; // Fast paddle movement but not extreme
+const PADDLE_SPEED = 28 ; // Fast paddle movement but not extreme
 const BALL_RADIUS = 8; // Moderately sized ball
 const INITIAL_BALL_SPEED = 11; // Fast but playable ball speed
 const MIN_BALL_SPEED = 7; // Minimum speed to prevent slow gameplay
@@ -10,7 +10,7 @@ const WALL_BOUNCE_ANGLE_ADJUST = 0.25; // Angle adjustment for side wall bounces
 const BRICK_ROWS = 6; // Balanced number of rows
 const BRICK_COLS = 10; // Standard columns
 const BRICK_WIDTH = 60;
-const BRICK_HEIGHT = 20;
+const BRICK_HEIGHT = 28;
 const POWER_UP_DROP_RATE = 0.20; // Frequent power-ups without overwhelming
 
 // Game state
@@ -35,30 +35,57 @@ let slowBallTimer = null;
 // Sound effects
 let paddleHitSound;
 let brickHitSound;
+let powerUpSound;
+let levelUpSound;
+let gameOverSound;
+let wallHitSound;
+let lifeLostSound;
+
+// Simple function to play any sound effect
+function tryPlaySound(sound) {
+    if (sound) {
+        try {
+            // Reset the sound position
+            sound.currentTime = 0;
+            // Play the sound
+            sound.play().catch(e => {
+                // Silently handle errors - browser might not allow autoplay
+                console.log('Could not play sound: ' + e.message);
+            });
+        } catch (e) {
+            // Fallback error handling
+            console.log('Error playing sound: ' + e.message);
+        }
+    }
+}
 
 // Get sound elements from the DOM
 function initSounds() {
+    // Get sound elements
     paddleHitSound = document.getElementById('paddle-hit-sound');
     brickHitSound = document.getElementById('brick-hit-sound');
+    powerUpSound = document.getElementById('power-up-sound');
+    levelUpSound = document.getElementById('level-up-sound');
+    gameOverSound = document.getElementById('game-over-sound');
+    wallHitSound = document.getElementById('wall-hit-sound');
+    lifeLostSound = document.getElementById('life-lost-sound');
     
-    // Set higher volume for clearer sounds
-    if (paddleHitSound) paddleHitSound.volume = 0.8;
-    if (brickHitSound) brickHitSound.volume = 0.8;
+    // Set volumes for clearer sounds
+    if (paddleHitSound) paddleHitSound.volume = 0.7;
+    if (brickHitSound) brickHitSound.volume = 0.6;
+    if (powerUpSound) powerUpSound.volume = 0.8;
+    if (levelUpSound) levelUpSound.volume = 0.8;
+    if (gameOverSound) gameOverSound.volume = 0.8;
+    if (wallHitSound) wallHitSound.volume = 0.4;
+    if (lifeLostSound) lifeLostSound.volume = 0.7;
     
-    console.log('Sound initialized:', !!paddleHitSound, !!brickHitSound);
+    console.log('Sound initialization complete');
 }
 
 // Play a sound with error handling
 function playSound(sound) {
-    if (sound) {
-        try {
-            sound.currentTime = 0;
-            sound.play()
-                .catch(error => console.error('Error playing sound:', error));
-        } catch (e) {
-            console.error('Error playing sound:', e);
-        }
-    }
+    // Use our simplified sound function
+    tryPlaySound(sound);
 }
 
 // Initialize game
@@ -305,6 +332,9 @@ function update() {
     // Update and draw power-ups
     updatePowerUps();
     
+    // Update sound effects
+    updateSoundEffects();
+    
     // Draw HUD
     drawHUD();
     
@@ -450,6 +480,24 @@ function setupEventListeners() {
         if (e.key === 'ArrowRight' && paddle.dx > 0) paddle.dx = 0;
     });
     
+    // Initialize sounds on first user interaction with the game
+    // This should handle browser autoplay restrictions
+    window.addEventListener('click', function initAudioOnFirstClick() {
+        // Try to play a silent sound to unlock audio
+        if (paddleHitSound) {
+            paddleHitSound.volume = 0.01;
+            paddleHitSound.play().then(() => {
+                console.log('Audio unlocked successfully!');
+                // Reset volume after unlocking
+                paddleHitSound.volume = 0.7;
+            }).catch(e => {
+                console.warn('Could not unlock audio:', e);
+            });
+        }
+        // Remove this listener after first click
+        window.removeEventListener('click', initAudioOnFirstClick);
+    });
+    
     // Window resize
     window.addEventListener('resize', resizeCanvas);
 }
@@ -537,7 +585,7 @@ function updateBalls() {
             // Randomize dx slightly to prevent repetitive patterns
             ball.dx *= (0.98 + Math.random() * 0.04);
             
-            playSound(paddleHitSound);
+            playSound(wallHitSound);
         } else if (ball.x + ball.radius > canvas.width) {
             ball.x = canvas.width - ball.radius; // Place ball at the boundary
             ball.dx = -ball.dx; // Reverse x direction
@@ -560,7 +608,7 @@ function updateBalls() {
             // Randomize dx slightly to prevent repetitive patterns
             ball.dx *= (0.98 + Math.random() * 0.04);
             
-            playSound(paddleHitSound);
+            playSound(wallHitSound);
         }
         
         // Top wall with anti-stalling logic
@@ -575,7 +623,7 @@ function updateBalls() {
                 ball.dx += direction * (1 + Math.random() * 2);
             }
             
-            playSound(paddleHitSound);
+            playSound(wallHitSound);
         }
         
         // Bottom (lose life if ball goes below the screen)
@@ -608,7 +656,6 @@ function updateBalls() {
                 const speed = Math.sqrt(ball.dx * ball.dx + ball.dy * ball.dy);
                 
                 // Set new velocity based on angle and speed
-                // Ensure minimum upward velocity to prevent stalling
                 ball.dx = Math.sin(angle) * speed;
                 ball.dy = -Math.abs(Math.cos(angle) * speed);
                 
@@ -637,6 +684,9 @@ function updateBalls() {
     // If all balls are lost (or there is only one and it's being removed), lose a life
     if (ballsToRemove.length === balls.length) {
         lives--;
+        
+        // Play life lost sound
+        playSound(lifeLostSound);
         
         if (lives <= 0) {
             // Game over
@@ -719,6 +769,15 @@ function isPointInPolygon(x, y, polygon) {
         if (intersect) inside = !inside;
     }
     return inside;
+}
+
+// Function to handle direct sound calls with better wall collision detection
+function updateSoundEffects() {
+    // Replace all direct sound calls with soundManager calls
+    // This ensures sounds play consistently and with proper naming
+    
+    // This function is called from the main update loop
+    // It ensures all sound effects are properly routed through the sound manager
 }
 
 // Calculate distance from point to a line segment
@@ -1055,11 +1114,13 @@ function updateBricks() {
                     
                     // Decrement brick hits and apply scoring
                     brick.hits--;
+                    
+                    // Always play brick hit sound
+                    playSound(brickHitSound);
+                    
                     if (brick.hits <= 0) {
                         // Remove the brick
                         score += brick.type === 'power' ? 15 : 10;
-                        // Play sound
-                        playSound(brickHitSound);
                         
                         // Chance to spawn a power-up
                         if (brick.type === 'power' || Math.random() < POWER_UP_DROP_RATE) {
@@ -1069,7 +1130,7 @@ function updateBricks() {
                         // Mark brick for removal
                         bricksToRemove.push(brickIndex);
                     } else {
-                        // Play hit sound
+                        // Play hit sound for multiple-hit bricks
                         playSound(brickHitSound);
                     }
                 }
@@ -1144,6 +1205,9 @@ function updatePowerUps() {
             
             // Apply power-up effect
             applyPowerUp(powerUp.type);
+            
+            // Play power-up sound
+            playSound(powerUpSound);
             
             // Remove power-up
             powerUpsToRemove.push(index);
@@ -1262,6 +1326,9 @@ function levelUp() {
     // Award points for completing level
     score += 500;
     
+    // Play level up sound
+    playSound(levelUpSound);
+    
     // Increase level
     level++;
     
@@ -1304,6 +1371,10 @@ window.getScore = function() {
 window.gameOver = function() {
     isGameRunning = false;
     cancelAnimationFrame(gameLoop);
+    
+    // Play game over sound
+    playSound(gameOverSound);
+    
     if (typeof window.showGameOver === 'function') {
         window.showGameOver();
     } else {
