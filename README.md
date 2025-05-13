@@ -3,7 +3,7 @@
 A modern, sci-fi themed twist on the classic Breakout arcade game, featuring Sacsayhuamán-inspired megalithic brick patterns, dynamic ball physics, and exciting power-ups.
 
 ![Game Screenshot](screenshots/game-screenshot.png)
-*Note: Add a screenshot of your game here. Create a "screenshots" folder and add your game screenshot there.*
+
 
 ## 🎮 Game Overview
 
